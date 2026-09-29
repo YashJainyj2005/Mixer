@@ -7,17 +7,32 @@
 #include "gpi/platform_spec.h"		// GPI_ARCH_IS_...
 #include "gpi/tools.h"				// NUM_ELEMENTS()
 
+#ifndef MX_DCUBE
+#define MX_DCUBE 0
+#endif
+
+#if MX_DCUBE
+#include "dcube_config.h"
+#else
 // tiny test on developer's desk
 static const uint8_t nodes[] = { 1, 2};
 static const uint8_t payload_distribution[] = {  1,  2,  1,  2,  1,  2,  1,  2};
+#endif
 
 /*****************************************************************************/
 /* basic settings **********************************************************/
 
+#if MX_DCUBE
+#define MX_ROUND_LENGTH          DCUBE_ROUND_SLOTS
+#define MX_PAYLOAD_SIZE          DCUBE_PAYLOAD_SIZE
+#define MX_SLOT_LENGTH           GPI_TICK_US_TO_HYBRID2(DCUBE_SLOT_US)
+#else
 #define MX_ROUND_LENGTH			50 // in slots
+#define MX_PAYLOAD_SIZE			16
+#define MX_SLOT_LENGTH			GPI_TICK_US_TO_HYBRID2(2000)
+#endif
 #define MX_NUM_NODES			NUM_ELEMENTS(nodes)
 #define MX_GENERATION_SIZE		NUM_ELEMENTS(payload_distribution)
-#define MX_PAYLOAD_SIZE			16
 #define MX_INITIATOR_ID			payload_distribution[0]
 
 // choose a slot length according to your settings
@@ -25,7 +40,6 @@ static const uint8_t payload_distribution[] = {  1,  2,  1,  2,  1,  2,  1,  2};
 // For the tutorial project we use quiet long slots to be able to trace all messages
 // on the UART-based console.
 // #define MX_SLOT_LENGTH			GPI_TICK_MS_TO_HYBRID2(25)
-#define MX_SLOT_LENGTH			GPI_TICK_US_TO_HYBRID2(2000)
 
 // Possible values (Gpi_Radio_Mode):
 //		IEEE_802_15_4	= 1
@@ -38,7 +52,11 @@ static const uint8_t payload_distribution[] = {  1,  2,  1,  2,  1,  2,  1,  2};
 // Values mentioned in the manual (nRF52840_PS_v1.1):
 // +8dBm,  +7dBm,  +6dBm,  +5dBm,  +4dBm,  +3dBm, + 2dBm,
 //  0dBm,  -4dBm,  -8dBm, -12dBm, -16dBm, -20dBm, -40dBm
+#if MX_DCUBE
+#define MX_TX_PWR_DBM            DCUBE_TX_POWER_DBM
+#else
 #define MX_TX_PWR_DBM			8
+#endif
 
 /*****************************************************************************/
 /* special settings **********************************************************/

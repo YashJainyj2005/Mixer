@@ -5,3 +5,4 @@ Output/
 *.jlink
 .venv/
 .DS_Store
+logs_*/

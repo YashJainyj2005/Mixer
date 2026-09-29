@@ -22,6 +22,12 @@ To learn more about Mixer, please check out https://mixer.nes-lab.org
 
 ## Building and Running Mixer
 
+For the 48-node D-Cube adaptation, see [DCUBE_RUN.md](docs/DCUBE_RUN.md).
+Run `make dcube` with SEGGER Embedded Studio installed to build and verify the
+`DCUBE_Release` HEX for unattended deployment. The default slot is 5 ms; use
+`make dcube DCUBE_SLOT_US=2000` to build a separate 2 ms HEX. Set
+`DCUBE_ROUND_SLOTS=420` to change the 360-slot default round limit.
+
 Mixer encapsulates a number of critical timing constraints and exploits hardware-specific features for efficiency.
 As a consequence, it contains a certain amount of low-level code and requires platform-specific adaptions.
 Right now we support TelosB-compliant devices such as the Tmote Sky as well as Nordic Semiconductor's nRF52840 DK development boards powered by the ARM Cortex-M4 based nRF52840.

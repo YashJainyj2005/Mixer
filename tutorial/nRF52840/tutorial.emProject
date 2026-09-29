@@ -68,8 +68,15 @@
       c_preprocessor_definitions="GPI_ARCH_PLATFORM=(GPI_ARCH_BOARD_nRF_PCA10056 | GPI_ARCH_CRT_SEGGER1);GPI_TRACE_MODE=GPI_TRACE_MODE_NO_TRACE;GPI_TRACE_BASE_SELECTION=GPI_TRACE_LOG_STANDARD|GPI_TRACE_LOG_USER;GPI_TRACE_BUFFER_ELEMENTS=64"
       gcc_debugging_level="Level 3"
       gcc_optimization_level="Level 1" />
+    <configuration
+      Name="DCUBE_Release"
+      c_preprocessor_definitions="MX_DCUBE=1;DCUBE_SLOT_US=$(DCUBE_SLOT_US:5000);DCUBE_ROUND_SLOTS=$(DCUBE_ROUND_SLOTS:360);GPI_ARCH_PLATFORM=(GPI_ARCH_BOARD_nRF_PCA10056 | GPI_ARCH_CRT_SEGGER1);GPI_TRACE_MODE=GPI_TRACE_MODE_NO_TRACE;GPI_TRACE_BASE_SELECTION=GPI_TRACE_LOG_STANDARD | GPI_TRACE_LOG_USER;GPI_TRACE_BUFFER_ELEMENTS=64"
+      arm_linker_stack_size="4096"
+      gcc_optimization_level="Level 2 for size" />
     <folder Name="Mixer Files">
       <file file_name="mixer_config.h" />
+      <file file_name="dcube_config.h" />
+      <file file_name="dcube_payload.h" />
       <file file_name="../../src/gpi/gpi.c" />
       <file file_name="../../src/mixer/mixer.c" />
       <file file_name="../../src/mixer/mixer_discovery.c" />
@@ -80,6 +87,7 @@
       <file file_name="../../src/mixer/nrf52840/memxor.c" />
       <file file_name="../../src/mixer/nrf52840/mixer_internal.c" />
       <file file_name="../../src/mixer/nrf52840/mixer_transport_ble.c">
+        <configuration Name="DCUBE_Release" build_exclude_from_build="Yes" />
         <configuration
           Name="PCA10056_Release"
           build_exclude_from_build="Yes" />
@@ -97,6 +105,12 @@
     c_preprocessor_definitions="DEBUG"
     gcc_debugging_level="Level 3"
     gcc_optimization_level="None" />
+  <configuration
+    Name="DCUBE_Release"
+    c_preprocessor_definitions="NDEBUG"
+    gcc_debugging_level="None"
+    gcc_omit_frame_pointer="Yes"
+    gcc_optimization_level="Level 3" />
   <configuration
     Name="PCA10056_Release"
     c_preprocessor_definitions="NDEBUG"

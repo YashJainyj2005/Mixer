@@ -674,6 +674,22 @@ int16_t mixer_stat_slot(unsigned int i)
 
 //**************************************************************************************************
 
+#if MX_DCUBE
+uint32_t mixer_stat_last_rank_latency_us(void)
+{
+	// The last received packet gives the local time of its slot. Subtract its
+	// slot index to reconstruct this node's start of the network round.
+	if (!mx.stat_counter.last_rank_increase_tick || !mx.ref_time || !mx.ref_slot)
+		return 0;
+
+	Gpi_Hybrid_Tick round_start = mx.ref_time -
+		gpi_mulu((Gpi_Hybrid_Tick)MX_SLOT_LENGTH, mx.ref_slot);
+	return gpi_tick_hybrid_to_us(mx.stat_counter.last_rank_increase_tick - round_start);
+}
+#endif
+
+//**************************************************************************************************
+
 Mixer_Stat_Counter* mixer_statistics(void)
 {
 	return &mx.stat_counter;

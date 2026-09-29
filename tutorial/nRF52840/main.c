@@ -78,6 +78,16 @@ GPI_TRACE_CONFIG(main, GPI_TRACE_BASE_SELECTION);
 #include <stdlib.h>
 #include <string.h>
 
+#if MX_DCUBE
+#include "dcube_payload.h"
+ASSERT_CT_STATIC(DCUBE_NODE_COUNT == 48, dcube_requires_48_nodes);
+ASSERT_CT_STATIC(NUM_ELEMENTS(dcube_hw_ids) == MX_NUM_NODES, dcube_id_table_size);
+ASSERT_CT_STATIC(MX_GENERATION_SIZE == MX_NUM_NODES, dcube_one_message_per_node);
+ASSERT_CT_STATIC(MX_PAYLOAD_SIZE >= 8, dcube_payload_too_short);
+ASSERT_CT_STATIC(MX_VERBOSE_STATISTICS, dcube_metrics_require_statistics);
+ASSERT_CT_STATIC(MX_PHY_MODE == IEEE_802_15_4, dcube_build_uses_802154_transport);
+ASSERT_CT_STATIC(DCUBE_CHANNEL >= 11 && DCUBE_CHANNEL <= 26, dcube_channel_invalid);
+#endif
 
 //**************************************************************************************************
 //***** Local Defines and Consts *******************************************************************
@@ -103,6 +113,10 @@ static uint32_t		msgs_decoded;
 static uint32_t		msgs_not_decoded;
 static uint32_t		msgs_weak;
 static uint32_t		msgs_wrong;
+#if MX_DCUBE
+static uint32_t      msgs_stale;
+static unsigned int  dcube_round_synced;
+#endif
 
 //**************************************************************************************************
 //***** Global Variables ***************************************************************************
@@ -133,8 +147,35 @@ static void print_results(uint8_t log_id)
 
 	PRINT_HEADER();
 	printf("round=%" PRIu32 " rank=%" PRIu32 " dec=%" PRIu32 " !dec=%" PRIu32 " weak=%" PRIu32
-	       " wrong=%" PRIu32 "\n",
+	       " wrong=%" PRIu32,
 	       round, rank, msgs_decoded, msgs_not_decoded, msgs_weak, msgs_wrong);
+#if MX_DCUBE
+	printf(" stale=%" PRIu32 " synced=%u", msgs_stale, dcube_round_synced);
+	// Reliability counts only messages whose full payload and round were validated.
+	// kB/s (decimal) is configured workload bytes / latency in milliseconds. The same
+	// value in kb/s is eight times larger, as in the bit-based formula.
+	const uint32_t latency_us = mixer_stat_last_rank_latency_us();
+	const uint32_t radio_on_us = gpi_tick_hybrid_to_us(mixer_statistics()->radio_on_time);
+	const uint32_t reliability_centi_pct =
+		(msgs_decoded * 10000UL + MX_NUM_NODES / 2) / MX_NUM_NODES;
+	printf(" latency_ms=%" PRIu32 ".%03" PRIu32
+	       " radio_on_ms=%" PRIu32 ".%03" PRIu32,
+	       latency_us / 1000, latency_us % 1000,
+	       radio_on_us / 1000, radio_on_us % 1000);
+	if (latency_us)
+	{
+		const uint32_t goodput_milli_kBps =
+			(MX_PAYLOAD_SIZE * MX_NUM_NODES * 1000000UL + latency_us / 2) / latency_us;
+		printf(" goodput_kBps=%" PRIu32 ".%03" PRIu32,
+		       goodput_milli_kBps / 1000, goodput_milli_kBps % 1000);
+	}
+	else
+		printf(" goodput_kBps=NA"); // no over-the-air rank increase
+	printf(" reliability_pct=%" PRIu32 ".%02" PRIu32,
+	       reliability_centi_pct / 100, reliability_centi_pct % 100);
+	msgs_stale = 0;
+#endif
+	printf("\n");
 
 	msgs_decoded = 0;
 	msgs_not_decoded = 0;
@@ -204,6 +245,20 @@ static void initialization(void)
 	gpi_platform_init();
 	gpi_int_enable();
 
+#if MX_DCUBE
+	// Leave the observer's shared mailbox/I/O pins undriven, without pull-downs.
+	// This application uses serial logging and does not implement the mailbox API.
+	const uint32_t observer_pin_config =
+		BV_BY_NAME(GPIO_PIN_CNF_DIR, Input) |
+		BV_BY_NAME(GPIO_PIN_CNF_INPUT, Disconnect) |
+		BV_BY_NAME(GPIO_PIN_CNF_PULL, Disabled) |
+		BV_BY_NAME(GPIO_PIN_CNF_SENSE, Disabled);
+	NRF_P0->PIN_CNF[3] = observer_pin_config;
+	NRF_P0->PIN_CNF[4] = observer_pin_config;
+	for (unsigned int i = 1; i <= 8; ++i)
+		NRF_P1->PIN_CNF[i] = observer_pin_config;
+#endif
+
 	// Start random number generator (RNG) now so that we definitely have some random value as a seed later in the initialization.
 	NRF_RNG->INTENCLR = BV_BY_NAME(RNG_INTENCLR_VALRDY, Clear);
 	NRF_RNG->CONFIG = BV_BY_NAME(RNG_CONFIG_DERCEN, Enabled);
@@ -230,7 +285,11 @@ static void initialization(void)
 			break;
 
 		case IEEE_802_15_4:
+			#if MX_DCUBE
+			gpi_radio_set_channel(DCUBE_CHANNEL);
+			#else
 			gpi_radio_set_channel(26);
+			#endif
 			break;
 
 		default:
@@ -240,8 +299,28 @@ static void initialization(void)
 
 	printf("Hardware initialized. Compiled at " __DATE__ " " __TIME__ "\n");
 
-	// Check if TOS_NODE_ID is set. If not, request from stdin.
-	#if GPI_ARCH_IS_BOARD(nRF_PCA10056)
+	#if MX_DCUBE
+		const uint32_t hw_id = NRF_FICR->DEVICEID[0];
+		const int logical_id = dcube_lookup_node(hw_id);
+		printf("DCUBE boot hw0=0x%08" PRIx32 " hw1=0x%08" PRIx32 "\n",
+		       hw_id, NRF_FICR->DEVICEID[1]);
+		if (logical_id < 0)
+		{
+			printf("DCUBE ERROR unknown hardware ID; radio remains silent. Update dcube_config.h.\n");
+			NRF_RNG->TASKS_STOP = 1;
+			SysTick->CTRL = 0;
+			for (;;) __WFE();
+		}
+		TOS_NODE_ID = nodes[logical_id];
+		printf("DCUBE observer=%u logical=%u nodes=%u generation=%u initiator=%u\n",
+		       TOS_NODE_ID, (unsigned int)logical_id, (unsigned int)MX_NUM_NODES,
+		       (unsigned int)MX_GENERATION_SIZE, (unsigned int)MX_INITIATOR_ID);
+		printf("DCUBE phy=IEEE802154 channel=%u tx_dbm=%d payload=%u slot_us=%u slots=%u gap_ms=%u\n",
+		       DCUBE_CHANNEL, DCUBE_TX_POWER_DBM, DCUBE_PAYLOAD_SIZE, DCUBE_SLOT_US,
+		       DCUBE_ROUND_SLOTS, DCUBE_INTER_ROUND_MS);
+		printf("DCUBE job settings: binary patching OFF, serial logs ON, Empty Configuration\n");
+	// Local tutorial: use stored UICR ID or ask on the console.
+	#elif GPI_ARCH_IS_BOARD(nRF_PCA10056)
 		if (0 == TOS_NODE_ID)
 		{
 			uint16_t	data[2];
@@ -299,6 +378,13 @@ static void initialization(void)
 	NRF_RNG->TASKS_STOP = 1;
 	uint8_t rng_value = BV_BY_VALUE(RNG_VALUE_VALUE, NRF_RNG->VALUE);
 	uint32_t rng_seed = rng_value * gpi_mulu_16x16(TOS_NODE_ID, gpi_tick_fast_native());
+	#if MX_DCUBE
+		if (!rng_seed)
+		{
+			rng_seed = dcube_nonzero_seed(rng_seed, NRF_FICR->DEVICEID[0]);
+			printf("DCUBE RNG zero seed replaced using factory ID\n");
+		}
+	#endif
 	printf("random seed for Mixer is %" PRIu32"\n", rng_seed);
 	// init RNG with randomized seed
 	mixer_rand_seed(rng_seed);
@@ -333,13 +419,27 @@ int main()
 
 	initialization();
 
+#if MX_DCUBE
+	// Give observers time to finish flashing/resetting before the first round.
+	// Receivers still use infinite scan and can join later if needed.
+	if (MX_INITIATOR_ID == TOS_NODE_ID)
+	{
+		printf("DCUBE initiator waiting %u ms for startup\n", DCUBE_BOOTSTRAP_DELAY_MS);
+		gpi_milli_sleep(DCUBE_BOOTSTRAP_DELAY_MS);
+	}
+#endif
+
 	// t_ref for first round is now (-> start as soon as possible)
 	t_ref = gpi_tick_hybrid();
 
 	// run
 	for (round = 1; 1; round++)
 	{
+		#if MX_DCUBE
+		uint8_t data[DCUBE_PAYLOAD_SIZE];
+		#else
 		uint8_t	data[7];
+		#endif
 
 		printf("preparing round %" PRIu32 " ...\n", round);
 
@@ -351,6 +451,11 @@ int main()
 			mixer_set_weak_return_msg((void*)-1);
 		#endif
 
+		#if MX_DCUBE
+		// The roster gives every logical node exactly one row of the generation.
+		dcube_make_payload(data, node_id, round);
+		mixer_write(node_id, data, sizeof(data));
+		#else
 		// provide some test data messages
 		{
 			data[1] = node_id;
@@ -372,6 +477,7 @@ int main()
 				}
 			}
 		}
+		#endif
 
 		// arm mixer
 
@@ -398,6 +504,37 @@ int main()
 		// Wait until t_ref (nominal end of Mixer round). 
 		while (gpi_tick_compare_hybrid(gpi_tick_hybrid(), t_ref) < 0);
 
+		#if MX_DCUBE
+		// Message zero belongs to the initiator. Establish the network round before
+		// checking freshness of any row, including our own row after a late join.
+		const uint8_t *reference = mixer_read(0);
+		dcube_round_synced = reference && reference != (void*)-1 &&
+		                     dcube_payload_valid(reference, 0);
+		if (dcube_round_synced)
+		{
+			const uint32_t network_round = dcube_payload_round(reference);
+			if (round != network_round)
+				printf("DCUBE resync local=%" PRIu32 " network=%" PRIu32 "\n", round, network_round);
+			round = network_round;
+		}
+		else
+			printf("DCUBE round reference missing or invalid; next round will scan for resync\n");
+
+		for (i = 0; i < MX_GENERATION_SIZE; ++i)
+		{
+			const uint8_t *p = mixer_read(i);
+			if (p == NULL)
+				++msgs_not_decoded;
+			else if (p == (void*)-1)
+				++msgs_weak;
+			else if (!dcube_payload_valid(p, i))
+				++msgs_wrong;
+			else if (dcube_payload_round(p) != round)
+				++msgs_stale;
+			else
+				++msgs_decoded;
+		}
+		#else
 		// evaluate received data
 		for (i = 0; i < MX_GENERATION_SIZE; i++)
 		{
@@ -446,10 +583,17 @@ int main()
 			}
 		}
 
+		#endif
 		print_results(node_id);
 
 		// Set start time for next round. Check that there is enough time to print all results!
+		#if MX_DCUBE
+		t_ref += MAX(10 * MX_SLOT_LENGTH, GPI_TICK_MS_TO_HYBRID2(DCUBE_INTER_ROUND_MS));
+		if (!dcube_round_synced)
+			round = 0; // for-loop increments to 1, enabling infinite scan again
+		#else
 		t_ref += MAX(10 * MX_SLOT_LENGTH, GPI_TICK_MS_TO_HYBRID2(1000));
+		#endif
 	}
 
 	GPI_TRACE_RETURN(0);

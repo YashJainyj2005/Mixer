@@ -1,5 +1,15 @@
 # Introduction
 
+For the implemented 48-node D-Cube target, select **DCUBE_Release** in SES or run
+`make dcube` from the repository root to build the default 5 ms image. Use
+`make dcube DCUBE_SLOT_US=2000` for a 2 ms variant. Upload the matching
+`Output/DCUBE_Release/Exe/Tutorial_slot5000us.hex` or `Tutorial_slot2000us.hex`;
+unsuffixed `Tutorial.hex` is whichever variant was built most recently.
+Set `DCUBE_ROUND_SLOTS=420` to override the default 360-slot round limit;
+non-default limits add a filename suffix such as `_round420slots`.
+See the [D-Cube run guide](../../docs/DCUBE_RUN.md) for configuration, node IDs and job settings.
+The original configurations described below remain the two-node local tutorial.
+
 This tutorial project demonstrates the main functionality of Mixer using a simple demo application that performs communication rounds indefinitely while logging informative messages over the UART
 connection of each node in the network.
 

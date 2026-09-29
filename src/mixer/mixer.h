@@ -129,6 +129,9 @@ typedef struct Mixer_Stat_Counter_tag
 
 	Gpi_Hybrid_Tick		radio_on_time;
 	Gpi_Hybrid_Tick		low_power_time;
+	#if MX_DCUBE
+	Gpi_Hybrid_Tick		last_rank_increase_tick;
+	#endif
 
 #endif
 
@@ -156,6 +159,9 @@ void				mixer_arm(Mixer_Start_Mode mode);
 Gpi_Hybrid_Tick		mixer_start();
 void*				mixer_read(unsigned int i);
 int16_t				mixer_stat_slot(unsigned int i);
+#if MX_DCUBE
+uint32_t			mixer_stat_last_rank_latency_us(void);
+#endif
 Mixer_Stat_Counter* mixer_statistics(void);
 void				mixer_print_config(void);
 void				mixer_print_statistics(void);

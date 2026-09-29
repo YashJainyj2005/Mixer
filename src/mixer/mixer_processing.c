@@ -2025,6 +2025,10 @@ PT_THREAD(mixer_process_rx_data())
 					#endif
 
 					mx.rank++;
+					#if MX_DCUBE && MX_VERBOSE_STATISTICS
+						// Capture when processing adds new independent information.
+						mx.stat_counter.last_rank_increase_tick = gpi_tick_hybrid();
+					#endif
 
 					// update mx.tx_reserve
 					// NOTE: there are two reasons to do so:
